@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>UtilityOps AI - Bill Details #{{ bill.id }}</title>
+  <meta name="description" content="Utility bill details and statement information.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+  <div class="ambient-glow"></div>
+
+  <div class="dashboard-layout">
+    <!-- Navbar -->
+    <header class="navbar">
+      <div class="nav-brand">
+        <a href="{{ url_for('dashboard') }}" style="display: flex; align-items: center; gap: 0.85rem; text-decoration: none; color: inherit;">
+          <div class="nav-logo-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+            </svg>
+          </div>
+          <span class="nav-title">UtilityOps AI</span>
+        </a>
+        <span class="nav-tag">Phase 3</span>
+      </div>
+
+      <nav>
+        <ul class="nav-links">
+          <li><a href="{{ url_for('dashboard') }}" class="nav-link">Dashboard</a></li>
+          <li><a href="{{ url_for('bills') }}" class="nav-link active">Bills</a></li>
+          <li><a href="{{ url_for('submit_bill') }}" class="nav-link">Submit Bill</a></li>
+        </ul>
+      </nav>
+
+      <div class="nav-user-actions">
+        <div class="user-badge" id="user-badge">
+          <div class="user-avatar">{{ username[0]|upper if username else 'U' }}</div>
+          <span>{{ username }}</span>
+        </div>
+        <a href="{{ url_for('logout') }}" class="btn-logout" id="logout-btn" title="Sign out">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+            <polyline points="16 17 21 12 16 7"></polyline>
+            <line x1="21" y1="12" x2="9" y2="12"></line>
+          </svg>
+          <span>Logout</span>
+        </a>
+      </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="dashboard-container">
+      <!-- Flash Messages -->
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          <div class="messages-container">
+            {% for category, message in messages %}
+              <div class="alert alert-{{ category }}" role="alert">
+                <span>{{ message }}</span>
+              </div>
+            {% endfor %}
+          </div>
+        {% endif %}
+      {% endwith %}
+
+      <!-- Action Bar Header -->
+      <div class="action-bar" style="margin-bottom: 1.5rem;">
+        <div>
+          <div style="display: flex; align-items: center; gap: 0.75rem;">
+            <h1 style="font-size: 1.75rem; font-weight: 700; color: var(--text-main);">Bill Statement Details</h1>
+            {% if bill.status|lower == 'processed' %}
+              <span class="status-badge badge-processed">Processed</span>
+            {% elif bill.status|lower == 'verify' %}
+              <span class="status-badge badge-verify">Verify</span>
+            {% elif bill.status|lower == 'pending' %}
+              <span class="status-badge badge-pending">Pending</span>
+            {% elif bill.status|lower == 'anomaly' %}
+              <span class="status-badge badge-anomaly">Anomaly</span>
+            {% else %}
+              <span class="status-badge badge-verify">{{ bill.status }}</span>
+            {% endif %}
+          </div>
+          <p style="color: var(--text-muted); font-size: 0.9rem; margin-top: 0.25rem;">
+            Record ID: <code>#{{ bill.id }}</code> &bull; Store: <strong>{{ bill.store_code }} &mdash; {{ bill.store_name }}</strong>
+          </p>
+        </div>
+        <div class="btn-group">
+          <a href="{{ url_for('bills') }}" class="btn-secondary">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="19" y1="12" x2="5" y2="12"></line>
+              <polyline points="12 19 5 12 12 5"></polyline>
+            </svg>
+            <span>Back to Bills</span>
+          </a>
+          <a href="{{ url_for('submit_bill') }}" class="btn-cta">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+            <span>Submit Another</span>
+          </a>
+        </div>
+      </div>
+
+      <!-- Details Card -->
+      <div class="form-card" style="padding: 2rem;">
+        <h2 style="font-size: 1.15rem; font-weight: 700; color: var(--text-main); margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--primary);">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+            <polyline points="14 2 14 8 20 8"></polyline>
+          </svg>
+          Statement Metadata
+        </h2>
+
+        <div class="detail-grid">
+          <div class="detail-item">
+            <div class="detail-label">Store Code</div>
+            <div class="detail-value" style="color: var(--primary);">{{ bill.store_code }}</div>
+          </div>
+
+          <div class="detail-item">
+            <div class="detail-label">Store Name</div>
+            <div class="detail-value">{{ bill.store_name }}</div>
+          </div>
+
+          <div class="detail-item">
+            <div class="detail-label">Supervisor</div>
+            <div class="detail-value">{{ bill.supervisor or 'N/A' }}</div>
+          </div>
+
+          <div class="detail-item">
+            <div class="detail-label">Utility Type</div>
+            <div class="detail-value">{{ bill.utility_type }}</div>
+          </div>
+
+          <div class="detail-item">
+            <div class="detail-label">Billing Period</div>
+            <div class="detail-value">{{ bill.billing_period }}</div>
+          </div>
+
+          <div class="detail-item">
+            <div class="detail-label">Bill / Invoice Number</div>
+            <div class="detail-value">{{ bill.bill_number or 'N/A' }}</div>
+          </div>
+
+          <div class="detail-item">
+            <div class="detail-label">Consumption (Units)</div>
+            <div class="detail-value">
+              {% if bill.units is not none %}
+                {{ "{:,.2f}".format(bill.units) }}
+              {% else %}
+                <span style="color: var(--text-dim);">N/A</span>
+              {% endif %}
+            </div>
+          </div>
+
+          <div class="detail-item">
+            <div class="detail-label">Tariff / Unit Rate</div>
+            <div class="detail-value">
+              {% if bill.unit_rate is not none %}
+                ${{ "{:,.4f}".format(bill.unit_rate) }}
+              {% else %}
+                <span style="color: var(--text-dim);">N/A</span>
+              {% endif %}
+            </div>
+          </div>
+
+          <div class="detail-item">
+            <div class="detail-label">Total Amount</div>
+            <div class="detail-value" style="color: #6ee7b7;">
+              {% if bill.amount is not none %}
+                ${{ "{:,.2f}".format(bill.amount) }}
+              {% else %}
+                <span style="color: var(--text-dim);">N/A</span>
+              {% endif %}
+            </div>
+          </div>
+
+          <div class="detail-item">
+            <div class="detail-label">Bill Statement Date</div>
+            <div class="detail-value">{{ bill.bill_date or 'N/A' }}</div>
+          </div>
+
+          <div class="detail-item">
+            <div class="detail-label">Current Status</div>
+            <div class="detail-value">
+              {{ bill.status }}
+            </div>
+          </div>
+
+          <div class="detail-item">
+            <div class="detail-label">Date Submitted</div>
+            <div class="detail-value" style="font-size: 0.95rem;">{{ bill.created_at or 'N/A' }}</div>
+          </div>
+        </div>
+
+        <!-- Attachment Section -->
+        <div style="margin-top: 2rem; border-top: 1px solid var(--border-subtle); padding-top: 1.5rem;">
+          <h3 style="font-size: 1rem; font-weight: 600; color: var(--text-main); margin-bottom: 0.75rem;">
+            Attached Bill Document
+          </h3>
+          {% if bill.file_path %}
+            <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; padding: 1rem 1.25rem; background: rgba(10, 15, 26, 0.5); border: 1px solid var(--border-subtle); border-radius: var(--radius-md);">
+              <div style="display: flex; align-items: center; gap: 0.75rem;">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--primary);">
+                  <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path>
+                  <polyline points="13 2 13 9 20 9"></polyline>
+                </svg>
+                <div>
+                  <div style="font-weight: 600; font-size: 0.925rem; color: var(--text-main);">
+                    {{ bill.file_path.split('/')[-1] }}
+                  </div>
+                  <div style="font-size: 0.8rem; color: var(--text-dim);">
+                    Uploaded statement attachment
+                  </div>
+                </div>
+              </div>
+              <a href="{{ url_for('download_file', filename=bill.file_path.split('/')[-1]) }}" class="btn-secondary btn-sm" target="_blank" id="btn-view-document">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                  <polyline points="7 10 12 15 17 10"></polyline>
+                  <line x1="12" y1="15" x2="12" y2="3"></line>
+                </svg>
+                <span>View / Download Document</span>
+              </a>
+            </div>
+          {% else %}
+            <div style="display: flex; align-items: center; gap: 0.65rem; padding: 0.85rem 1.15rem; background: rgba(255, 255, 255, 0.02); border: 1px dashed var(--border-subtle); border-radius: var(--radius-md); color: var(--text-dim); font-size: 0.875rem;">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="15" y1="9" x2="9" y2="15"></line>
+                <line x1="9" y1="9" x2="15" y2="15"></line>
+              </svg>
+              <span>No bill file uploaded</span>
+            </div>
+          {% endif %}
+        </div>
+
+        <!-- AI Engine Notice -->
+        <div class="info-banner" style="margin-top: 2rem;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"></circle>
+            <line x1="12" y1="16" x2="12" y2="12"></line>
+            <line x1="12" y1="8" x2="12.01" y2="8"></line>
+          </svg>
+          <div>
+            <strong>Phase 3 Status:</strong> AI analysis will be available in a later phase. Data shown above reflects records stored in the SQLite data layer.
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="dashboard-footer">
+      <p>UtilityOps AI &copy; 2026 &bull; AI-powered utility bill management &bull; Phase 3</p>
+    </footer>
+  </div>
+
+  <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>
