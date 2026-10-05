@@ -49,6 +49,7 @@
       {% endwith %}
 
       <form action="{{ url_for('login') }}" method="POST" class="auth-form" id="login-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="form-group">
           <label for="username">Username</label>
           <div class="input-container">
@@ -92,15 +93,7 @@
           </svg>
         </button>
 
-        <div class="credentials-hint">
-          <div>
-            <span>Demo: <code>admin</code> / <code>admin123</code> &bull; <code>supervisor</code> / <code>super123</code></span>
-          </div>
-          <div style="display: flex; gap: 0.35rem;">
-            <button type="button" class="btn-fill-demo" id="btn-fill-admin">Admin</button>
-            <button type="button" class="btn-fill-demo" id="btn-fill-supervisor">Supervisor</button>
-          </div>
-        </div>
+        <div class="credentials-hint">Demo accounts are documented in the project README.</div>
       </form>
     </div>
   </main>

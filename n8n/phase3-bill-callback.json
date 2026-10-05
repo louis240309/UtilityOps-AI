@@ -1,0 +1,53 @@
+{
+  "name": "UtilityOps Phase 3 Bill Callback Starter",
+  "nodes": [
+    {
+      "parameters": { "httpMethod": "POST", "path": "utilityops-bill-submitted", "responseMode": "onReceived", "options": {} },
+      "id": "b57f064a-6314-4b1d-aefd-09198cd38c33",
+      "name": "Bill Submitted Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "utilityops-bill-submitted"
+    },
+    {
+      "parameters": {
+        "jsCode": "const event = $json.body ?? $json;\nconst authorization = $json.headers?.authorization ?? '';\nconst secret = $env.N8N_WEBHOOK_SECRET ?? '';\nif (!secret || authorization !== `Bearer ${secret}`) throw new Error('Unauthorized UtilityOps webhook');\nif (event.event !== 'bill.submitted' || event.schema_version !== 1) throw new Error('Unsupported UtilityOps event');\nconst bill = event.bill;\nif (!bill || !Number.isInteger(bill.id) || typeof event.request_id !== 'string' || !event.callback_url) throw new Error('Invalid UtilityOps bill event');\nreturn [{ json: { callbackUrl: event.callback_url, callbackPayload: { bill_id: bill.id, request_id: event.request_id, decision: 'VERIFY', extracted_fields: {}, reason: 'Received and validated by the Phase 3 starter workflow; manual bill review is still required.', recommended_action: 'Review the submitted bill details and attached document.' } } }];"
+      },
+      "id": "7962c4d4-4140-4bc2-905b-53176fcbd87a",
+      "name": "Validate and Prepare Review Callback",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [480, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.callbackUrl }}",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [
+          { "name": "Authorization", "value": "={{ 'Bearer ' + $env.N8N_WEBHOOK_SECRET }}" },
+          { "name": "Content-Type", "value": "application/json" }
+        ] },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.callbackPayload }}",
+        "options": { "timeout": 10000 }
+      },
+      "id": "36fec98b-07aa-4d21-8907-17cdabff5f6a",
+      "name": "Return Manual Review Result",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [740, 300]
+    }
+  ],
+  "connections": {
+    "Bill Submitted Webhook": { "main": [[{ "node": "Validate and Prepare Review Callback", "type": "main", "index": 0 }]] },
+    "Validate and Prepare Review Callback": { "main": [[{ "node": "Return Manual Review Result", "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "versionId": "d52ed60b-3795-4ea9-b853-c4b3d448f935",
+  "meta": { "templateCredsSetupCompleted": true },
+  "tags": []
+}

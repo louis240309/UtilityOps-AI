@@ -1,9 +1,12 @@
 import os
 import sqlite3
+import uuid
+from datetime import datetime
+from werkzeug.security import generate_password_hash, check_password_hash
 
 # Database configuration
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.environ.get('DATABASE_PATH', os.path.join(BASE_DIR, 'utilityops.db'))
+DB_PATH = os.environ.get('DATABASE_PATH') or os.path.join(BASE_DIR, 'utilityops.db')
 
 
 def get_db_connection():
@@ -28,6 +31,14 @@ def init_db():
             role TEXT NOT NULL
         );
     """)
+
+    # Upgrade legacy plaintext demo credentials in place. Werkzeug hashes are
+    # self identifying; this migration is safe to rerun on every startup.
+    for user in cursor.execute("SELECT id, password FROM users").fetchall():
+        stored = user['password'] or ''
+        if not stored.startswith(('scrypt:', 'pbkdf2:')):
+            cursor.execute("UPDATE users SET password = ? WHERE id = ?",
+                           (generate_password_hash(stored), user['id']))
 
     # 2. STORES table
     cursor.execute("""
@@ -142,7 +153,172 @@ def init_db():
         conn.commit()
         cursor.execute("PRAGMA foreign_keys = ON")
 
+    # Additive n8n automation fields. Existing rows and their relationships are
+    # left in place; the default labels pre-integration bills as not configured.
+    cursor.execute("PRAGMA table_info(utility_bills)")
+    bill_columns = {row['name'] for row in cursor.fetchall()}
+    if 'automation_status' not in bill_columns:
+        cursor.execute(
+            "ALTER TABLE utility_bills ADD COLUMN automation_status TEXT NOT NULL DEFAULT 'not_configured'"
+        )
+    if 'decision_reason' not in bill_columns:
+        cursor.execute("ALTER TABLE utility_bills ADD COLUMN decision_reason TEXT")
+    if 'automation_request_id' not in bill_columns:
+        cursor.execute("ALTER TABLE utility_bills ADD COLUMN automation_request_id TEXT")
+
+    if 'processing_state' not in bill_columns:
+        cursor.execute("ALTER TABLE utility_bills ADD COLUMN processing_state TEXT NOT NULL DEFAULT 'RECEIVED'")
+    if 'analysis_status' not in bill_columns:
+        cursor.execute("ALTER TABLE utility_bills ADD COLUMN analysis_status TEXT NOT NULL DEFAULT 'NOT_ANALYZED'")
+
+    # Keep legacy status readable while exposing distinct workflow concepts.
+    cursor.execute("""
+        UPDATE utility_bills
+        SET processing_state = CASE
+            WHEN automation_status = 'completed' AND UPPER(status) IN ('NORMAL','ANOMALY') THEN 'COMPLETED'
+            WHEN UPPER(status) IN ('VERIFY','PENDING') THEN 'REVIEW'
+            WHEN LOWER(status) = 'processed' THEN 'COMPLETED'
+            ELSE processing_state END,
+            analysis_status = CASE
+            WHEN UPPER(status) IN ('NORMAL','ANOMALY') THEN UPPER(status)
+            ELSE 'NOT_ANALYZED' END
+    """)
+
+    # Normalize recognizable legacy month labels to YYYY-MM.
+    for bill in cursor.execute("SELECT id, billing_period FROM utility_bills").fetchall():
+        try:
+            normalized_period = datetime.strptime(bill['billing_period'], '%B %Y').strftime('%Y-%m')
+        except (ValueError, TypeError):
+            continue
+        cursor.execute("UPDATE utility_bills SET billing_period = ? WHERE id = ?",
+                       (normalized_period, bill['id']))
+
+    # Enforce one bill for each store/utility/period, including blank numbers.
+    # Avoid failing startup if an old database already contains duplicates.
+    duplicate = cursor.execute("""
+        SELECT 1 FROM utility_bills GROUP BY store_id, utility_type, billing_period
+        HAVING COUNT(*) > 1 LIMIT 1
+    """).fetchone()
+    if not duplicate:
+        cursor.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_bill_store_utility_period
+            ON utility_bills(store_id, utility_type, billing_period)
+        """)
+
+    conn.commit()
+
     conn.close()
+
+
+def set_bill_automation_request(bill_id, request_id):
+    """Record the request before dispatch so a fast callback can be matched."""
+    try:
+        uuid.UUID(request_id)
+    except (ValueError, TypeError, AttributeError):
+        return False
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        UPDATE utility_bills
+        SET automation_request_id = ?, automation_status = 'queued'
+        WHERE id = ?
+    """, (request_id, bill_id))
+    updated = cursor.rowcount == 1
+    conn.commit()
+    conn.close()
+    return updated
+
+
+def set_bill_automation_status(bill_id, request_id, status):
+    """Store dispatch outcome without overwriting a callback already completed."""
+    if status not in {'not_configured', 'unavailable', 'queued'}:
+        return False
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        UPDATE utility_bills
+        SET automation_status = ?
+        WHERE id = ? AND automation_request_id = ?
+          AND automation_status != 'completed'
+    """, (status, bill_id, request_id))
+    updated = cursor.rowcount == 1
+    conn.commit()
+    conn.close()
+    return updated
+
+
+def apply_n8n_bill_result(bill_id, request_id, decision, extracted_fields=None,
+                          reason=None, recommended_action=None):
+    """Atomically apply one validated n8n result and any corresponding alert.
+
+    Returns one of: applied, duplicate, not_found, request_mismatch, invalid.
+    """
+    if decision not in {'NORMAL', 'VERIFY', 'ANOMALY'}:
+        return 'invalid'
+    try:
+        uuid.UUID(request_id)
+    except (ValueError, TypeError, AttributeError):
+        return 'invalid'
+    if extracted_fields is None:
+        extracted_fields = {}
+    allowed_fields = {'bill_number', 'units', 'unit_rate', 'amount', 'bill_date'}
+    if not isinstance(extracted_fields, dict) or set(extracted_fields) - allowed_fields:
+        return 'invalid'
+
+    conn = get_db_connection()
+    try:
+        conn.execute('BEGIN IMMEDIATE')
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT automation_request_id, automation_status FROM utility_bills WHERE id = ?",
+            (bill_id,)
+        )
+        bill = cursor.fetchone()
+        if bill is None:
+            conn.rollback()
+            return 'not_found'
+        if bill['automation_request_id'] != request_id:
+            conn.rollback()
+            return 'request_mismatch'
+        if bill['automation_status'] == 'completed':
+            conn.rollback()
+            return 'duplicate'
+
+        updates = {
+            key: value for key, value in extracted_fields.items()
+            if value is not None
+        }
+        assignments = ['status = ?', 'decision_reason = ?',
+                       "automation_status = 'completed'", "processing_state = ?", "analysis_status = ?"]
+        values = [decision, reason, 'REVIEW' if decision == 'VERIFY' else 'COMPLETED',
+                  decision if decision in {'NORMAL', 'ANOMALY'} else 'NOT_ANALYZED']
+        for field, value in updates.items():
+            assignments.append(f'"{field}" = ?')
+            values.append(value)
+        values.extend([request_id, bill_id])
+        cursor.execute(
+            f"UPDATE utility_bills SET {', '.join(assignments)} "
+            "WHERE automation_request_id = ? AND id = ?",
+            values,
+        )
+
+        if decision in {'VERIFY', 'ANOMALY'}:
+            alert_reason = (reason or f'n8n returned {decision}.')[:2000]
+            alert_action = recommended_action
+            severity = 'high' if decision == 'ANOMALY' else 'medium'
+            cursor.execute("""
+                INSERT INTO alerts (bill_id, severity, reason, recommended_action)
+                VALUES (?, ?, ?, ?)
+            """, (bill_id, severity, alert_reason, alert_action))
+
+        conn.commit()
+        return 'applied'
+    except sqlite3.Error:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 def seed_data():
@@ -155,8 +331,8 @@ def seed_data():
 
     # --- Seed Demo Users ---
     demo_users = [
-        ('admin', 'admin123', 'admin'),
-        ('supervisor', 'super123', 'supervisor')
+        ('admin', generate_password_hash('admin123'), 'admin'),
+        ('supervisor', generate_password_hash('super123'), 'supervisor')
     ]
     for username, password, role in demo_users:
         cursor.execute("SELECT id FROM users WHERE username = ?", (username,))
@@ -199,7 +375,7 @@ def seed_data():
         store_id = store_k144["id"]
         historical_bills = [
             {
-                "billing_period": "June 2026",
+                "billing_period": "2026-06",
                 "bill_number": "BILL-K144-202606",
                 "units": 9840.0,
                 "unit_rate": 0.15,
@@ -208,7 +384,7 @@ def seed_data():
                 "status": "processed"
             },
             {
-                "billing_period": "July 2026",
+                "billing_period": "2026-07",
                 "bill_number": "BILL-K144-202607",
                 "units": 10120.0,
                 "unit_rate": 0.15,
@@ -217,7 +393,7 @@ def seed_data():
                 "status": "processed"
             },
             {
-                "billing_period": "August 2026",
+                "billing_period": "2026-08",
                 "bill_number": "BILL-K144-202608",
                 "units": 10040.0,
                 "unit_rate": 0.15,
@@ -256,14 +432,25 @@ def seed_data():
 
 
 def get_user_by_credentials(username, password):
-    """Retrieve user record if username and password match."""
+    """Verify a password hash, upgrading legacy plaintext credentials if found."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute(
-        "SELECT id, username, role FROM users WHERE username = ? AND password = ?",
-        (username, password)
-    )
+    cursor.execute("SELECT id, username, role, password FROM users WHERE username = ?", (username,))
     user = cursor.fetchone()
+    if user:
+        stored = user['password'] or ''
+        try:
+            valid = check_password_hash(stored, password)
+        except (ValueError, TypeError):
+            valid = False
+        if not valid and not stored.startswith(('scrypt:', 'pbkdf2:')) and stored == password:
+            cursor.execute("UPDATE users SET password = ? WHERE id = ?",
+                           (generate_password_hash(password), user['id']))
+            valid = True
+        if not valid:
+            user = None
+        elif user:
+            user = {key: user[key] for key in ('id', 'username', 'role')}
     conn.close()
     return user
 
@@ -305,13 +492,13 @@ def get_dashboard_summary():
     cursor.execute("SELECT COUNT(*) AS count FROM utility_bills")
     total_bills = cursor.fetchone()["count"]
 
-    cursor.execute("SELECT COUNT(*) AS count FROM utility_bills WHERE LOWER(status) = 'processed'")
+    cursor.execute("SELECT COUNT(*) AS count FROM utility_bills WHERE processing_state = 'COMPLETED'")
     processed_count = cursor.fetchone()["count"]
 
-    cursor.execute("SELECT COUNT(*) AS count FROM utility_bills WHERE LOWER(status) IN ('verify', 'pending')")
+    cursor.execute("SELECT COUNT(*) AS count FROM utility_bills WHERE processing_state IN ('RECEIVED','PROCESSING','REVIEW','FAILED')")
     verify_count = cursor.fetchone()["count"]
 
-    cursor.execute("SELECT COUNT(*) AS count FROM utility_bills WHERE LOWER(status) = 'anomaly'")
+    cursor.execute("SELECT COUNT(*) AS count FROM utility_bills WHERE analysis_status = 'ANOMALY'")
     anomaly_count = cursor.fetchone()["count"]
     
     cursor.execute("SELECT COUNT(*) AS count FROM alerts WHERE is_reviewed = 0")
@@ -339,6 +526,17 @@ def get_store_by_id(store_id):
     return store
 
 
+def bill_exists_for_period(store_id, utility_type, billing_period):
+    conn = get_db_connection()
+    try:
+        return conn.execute("""
+            SELECT 1 FROM utility_bills
+            WHERE store_id = ? AND utility_type = ? AND billing_period = ? LIMIT 1
+        """, (store_id, utility_type, billing_period)).fetchone() is not None
+    finally:
+        conn.close()
+
+
 def get_all_bills():
     """Retrieve all utility bills ordered newest first."""
     conn = get_db_connection()
@@ -362,7 +560,7 @@ def get_bills_requiring_verification():
         SELECT ub.*, s.store_code, s.store_name, s.supervisor
         FROM utility_bills ub
         JOIN stores s ON ub.store_id = s.id
-        WHERE LOWER(ub.status) IN ('verify', 'pending')
+        WHERE ub.processing_state IN ('RECEIVED','PROCESSING','REVIEW','FAILED')
         ORDER BY ub.id DESC
     """)
     bills = cursor.fetchall()
@@ -394,8 +592,9 @@ def insert_bill(store_id, utility_type, billing_period, bill_number=None,
     cursor.execute("""
         INSERT INTO utility_bills (
             store_id, utility_type, billing_period, bill_number,
-            units, unit_rate, amount, bill_date, file_path, status
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            units, unit_rate, amount, bill_date, file_path, status,
+            processing_state, analysis_status
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'RECEIVED', 'NOT_ANALYZED')
     """, (
         store_id,
         utility_type,
@@ -412,4 +611,3 @@ def insert_bill(store_id, utility_type, billing_period, bill_number=None,
     conn.commit()
     conn.close()
     return bill_id
-

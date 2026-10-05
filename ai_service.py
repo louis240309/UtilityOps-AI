@@ -7,7 +7,7 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 
 # Supported Utility Types
-VALID_UTILITY_TYPES = {'Electricity', 'Water', 'Gas', 'Diesel'}
+VALID_UTILITY_TYPES = {'Electricity', 'Water', 'Gas'}
 
 
 def get_empty_extraction():
@@ -126,7 +126,7 @@ class AIService:
             result["store_name"] = "K137 - Westside Express"
             result["utility_type"] = "Water"
             result["amount"] = 840.50
-            result["billing_period"] = manual_inputs.get('billing_period') or "September 2026"
+            result["billing_period"] = manual_inputs.get('billing_period') or "2026-09"
             # units, unit_rate, bill_number left as None
             normalized, notes, is_safe = self.validate_and_normalize(result, manual_inputs)
             return {
@@ -144,7 +144,7 @@ class AIService:
             result["store_code"] = "K144"
             result["store_name"] = "K144 - Downtown Central Store"
             result["utility_type"] = "Electricity"
-            result["billing_period"] = manual_inputs.get('billing_period') or "September 2026"
+            result["billing_period"] = manual_inputs.get('billing_period') or "2026-09"
             result["bill_number"] = "BILL-K144-202609"
             result["units"] = 10040.0
             result["unit_rate"] = 0.15
@@ -155,7 +155,7 @@ class AIService:
             result["store_code"] = "K175"
             result["store_name"] = "K175 - Metro Supermarket"
             result["utility_type"] = manual_inputs.get('utility_type') or "Electricity"
-            result["billing_period"] = manual_inputs.get('billing_period') or "September 2026"
+            result["billing_period"] = manual_inputs.get('billing_period') or "2026-09"
             result["bill_number"] = "INV-K175-202609"
             result["units"] = 8500.5
             result["unit_rate"] = 0.145
@@ -164,7 +164,7 @@ class AIService:
 
         elif 'water' in filename or b'water' in file_bytes or manual_inputs.get('utility_type') == 'Water':
             result["utility_type"] = "Water"
-            result["billing_period"] = manual_inputs.get('billing_period') or "September 2026"
+            result["billing_period"] = manual_inputs.get('billing_period') or "2026-09"
             result["bill_number"] = "WTR-2026-09"
             result["units"] = 450.0
             result["unit_rate"] = 2.80
@@ -173,21 +173,12 @@ class AIService:
 
         elif 'gas' in filename or b'gas' in file_bytes or manual_inputs.get('utility_type') == 'Gas':
             result["utility_type"] = "Gas"
-            result["billing_period"] = manual_inputs.get('billing_period') or "September 2026"
+            result["billing_period"] = manual_inputs.get('billing_period') or "2026-09"
             result["bill_number"] = "GAS-2026-09"
             result["units"] = 920.0
             result["unit_rate"] = 1.15
             result["amount"] = 1058.00
             result["bill_date"] = "2026-09-29"
-
-        elif 'diesel' in filename or b'diesel' in file_bytes or manual_inputs.get('utility_type') == 'Diesel':
-            result["utility_type"] = "Diesel"
-            result["billing_period"] = manual_inputs.get('billing_period') or "September 2026"
-            result["bill_number"] = "DSL-2026-09"
-            result["units"] = 600.0
-            result["unit_rate"] = 3.20
-            result["amount"] = 1920.00
-            result["bill_date"] = "2026-09-27"
 
         else:
             # General demo extraction fallback
@@ -295,7 +286,7 @@ class AIService:
     def validate_and_normalize(data, manual_inputs=None):
         """
         Validate and sanitize extracted values against strict rules:
-        - utility_type must be in {'Electricity', 'Water', 'Gas', 'Diesel'}
+        - utility_type must be in {'Electricity', 'Water', 'Gas'}
         - numeric fields (units, unit_rate, amount) must be non-negative numbers
         - bill_date must be a valid date
         - billing_period must be preserved or valid

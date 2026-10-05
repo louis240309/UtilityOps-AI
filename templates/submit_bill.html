@@ -85,6 +85,7 @@
 
       <div class="form-card">
         <form action="{{ url_for('submit_bill') }}" method="POST" enctype="multipart/form-data" id="bill-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <div class="form-grid-2">
             <!-- Store Selection -->
             <div class="form-group">
@@ -106,7 +107,6 @@
                 <option value="Electricity">Electricity</option>
                 <option value="Water">Water</option>
                 <option value="Gas">Gas</option>
-                <option value="Diesel">Diesel</option>
               </select>
               <span class="form-hint">Type of commodity statement.</span>
             </div>
@@ -119,7 +119,7 @@
                   type="text" 
                   name="billing_period" 
                   id="billing_period" 
-                  placeholder="e.g. September 2026" 
+                  placeholder="YYYY-MM (e.g. 2026-09)"
                   required
                 >
               </div>
@@ -231,7 +231,7 @@
               <line x1="12" y1="8" x2="12.01" y2="8"></line>
             </svg>
             <div>
-              <strong>Phase 3 Submission Workflow:</strong> This submission will be saved to SQLite with initial status <span class="status-badge badge-verify">VERIFY</span> for supervisor review. AI extraction and anomaly detection will be enabled in later phases.
+              <strong>Phase 3 Submission Workflow:</strong> This submission is saved to SQLite for review. n8n automation is optional; OCR and automated analysis are not enabled in this phase.
             </div>
           </div>
 
@@ -265,9 +265,9 @@
     if (fileInput && fileChosenText) {
       fileInput.addEventListener('change', function() {
         if (this.files && this.files.length > 0) {
-          fileChosenText.innerHTML = '<strong>Selected File:</strong> ' + this.files[0].name;
+          fileChosenText.textContent = 'Selected file: ' + this.files[0].name;
         } else {
-          fileChosenText.innerHTML = '<strong>Click to select</strong> or drag and drop statement file here';
+          fileChosenText.textContent = 'Click to select or drag and drop statement file here';
         }
       });
     }

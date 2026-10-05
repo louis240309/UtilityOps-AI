@@ -96,7 +96,9 @@
                 <th>Billing Period</th>
                 <th>Units</th>
                 <th>Amount</th>
-                <th>Status</th>
+                <th>Processing / Analysis</th>
+                <th>Automation</th>
+                <th>Decision Reason</th>
                 <th>Submitted</th>
                 <th style="text-align: right;">Action</th>
               </tr>
@@ -127,17 +129,22 @@
                     {% endif %}
                   </td>
                   <td>
-                    {% if bill.status|lower == 'processed' %}
-                      <span class="status-badge badge-processed">Processed</span>
-                    {% elif bill.status|lower == 'verify' %}
-                      <span class="status-badge badge-verify">Verify</span>
-                    {% elif bill.status|lower == 'pending' %}
-                      <span class="status-badge badge-pending">Pending</span>
-                    {% elif bill.status|lower == 'anomaly' %}
-                      <span class="status-badge badge-anomaly">Anomaly</span>
+                    <span class="status-badge {% if bill.processing_state == 'COMPLETED' %}badge-processed{% elif bill.processing_state == 'REVIEW' %}badge-verify{% else %}badge-pending{% endif %}">{{ bill.processing_state|title }}</span>
+                    {% if bill.analysis_status in ['NORMAL', 'ANOMALY'] %}<span class="status-badge {% if bill.analysis_status == 'ANOMALY' %}badge-anomaly{% else %}badge-processed{% endif %}">{{ bill.analysis_status }}</span>{% endif %}
+                  </td>
+                  <td>
+                    {% if bill.automation_status == 'completed' %}
+                      <span class="status-badge badge-processed">Completed</span>
+                    {% elif bill.automation_status == 'queued' %}
+                      <span class="status-badge badge-pending">Queued</span>
+                    {% elif bill.automation_status in ['unavailable', 'failed'] %}
+                      <span class="status-badge badge-anomaly">{{ bill.automation_status|capitalize }}</span>
                     {% else %}
-                      <span class="status-badge badge-verify">{{ bill.status }}</span>
+                      <span class="status-badge badge-pending">Not configured</span>
                     {% endif %}
+                  </td>
+                  <td style="max-width: 260px; color: var(--text-muted);">
+                    {{ bill.decision_reason or '—' }}
                   </td>
                   <td style="color: var(--text-dim); font-size: 0.825rem;">
                     {{ bill.created_at or 'N/A' }}

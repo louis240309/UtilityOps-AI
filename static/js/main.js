@@ -26,26 +26,4 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     });
   }
-
-  // Quick Demo Auto-Fill Buttons
-  const fillAdminBtn = document.getElementById('btn-fill-admin') || document.getElementById('btn-fill-demo');
-  const fillSupervisorBtn = document.getElementById('btn-fill-supervisor');
-  const usernameInput = document.getElementById('username');
-
-  if (fillAdminBtn && usernameInput && passwordInput) {
-    fillAdminBtn.addEventListener('click', () => {
-      usernameInput.value = 'admin';
-      passwordInput.value = 'admin123';
-      passwordInput.focus();
-    });
-  }
-
-  if (fillSupervisorBtn && usernameInput && passwordInput) {
-    fillSupervisorBtn.addEventListener('click', () => {
-      usernameInput.value = 'supervisor';
-      passwordInput.value = 'super123';
-      passwordInput.focus();
-    });
-  }
 });
-

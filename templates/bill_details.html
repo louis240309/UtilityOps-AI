@@ -72,17 +72,8 @@
         <div>
           <div style="display: flex; align-items: center; gap: 0.75rem;">
             <h1 style="font-size: 1.75rem; font-weight: 700; color: var(--text-main);">Bill Statement Details</h1>
-            {% if bill.status|lower == 'processed' %}
-              <span class="status-badge badge-processed">Processed</span>
-            {% elif bill.status|lower == 'verify' %}
-              <span class="status-badge badge-verify">Verify</span>
-            {% elif bill.status|lower == 'pending' %}
-              <span class="status-badge badge-pending">Pending</span>
-            {% elif bill.status|lower == 'anomaly' %}
-              <span class="status-badge badge-anomaly">Anomaly</span>
-            {% else %}
-              <span class="status-badge badge-verify">{{ bill.status }}</span>
-            {% endif %}
+            <span class="status-badge {% if bill.processing_state == 'COMPLETED' %}badge-processed{% elif bill.processing_state == 'REVIEW' %}badge-verify{% else %}badge-pending{% endif %}">Processing: {{ bill.processing_state|title }}</span>
+            {% if bill.analysis_status in ['NORMAL', 'ANOMALY'] %}<span class="status-badge {% if bill.analysis_status == 'ANOMALY' %}badge-anomaly{% else %}badge-processed{% endif %}">Analysis: {{ bill.analysis_status }}</span>{% endif %}
           </div>
           <p style="color: var(--text-muted); font-size: 0.9rem; margin-top: 0.25rem;">
             Record ID: <code>#{{ bill.id }}</code> &bull; Store: <strong>{{ bill.store_code }} &mdash; {{ bill.store_name }}</strong>
@@ -186,9 +177,9 @@
           </div>
 
           <div class="detail-item">
-            <div class="detail-label">Current Status</div>
+            <div class="detail-label">Processing State</div>
             <div class="detail-value">
-              {{ bill.status }}
+              {{ bill.processing_state }}
             </div>
           </div>
 
@@ -197,6 +188,80 @@
             <div class="detail-value" style="font-size: 0.95rem;">{{ bill.created_at or 'N/A' }}</div>
           </div>
         </div>
+
+        <section style="margin-top: 2rem; border-top: 1px solid var(--border-subtle); padding-top: 1.5rem;" id="automation-results">
+          <h2 style="font-size: 1.15rem; font-weight: 700; color: var(--text-main); margin-bottom: 0.5rem;">Automation &amp; Processed Values</h2>
+          <div class="detail-grid">
+            <div class="detail-item">
+              <div class="detail-label">Automation Status</div>
+              <div class="detail-value">
+                {% if bill.automation_status == 'completed' %}
+                  Completed
+                {% elif bill.automation_status == 'queued' %}
+                  Automation pending
+                {% elif bill.automation_status in ['unavailable', 'failed'] %}
+                  Automation unavailable — bill remains available for manual review.
+                {% else %}
+                  Not configured — bill remains available for manual review.
+                {% endif %}
+              </div>
+            </div>
+
+            <div class="detail-item">
+              <div class="detail-label">Analysis Status</div>
+              <div class="detail-value">
+                {% if bill.analysis_status == 'ANOMALY' %}<span class="status-badge badge-anomaly">ANOMALY</span>
+                {% elif bill.analysis_status == 'NORMAL' %}<span class="status-badge badge-processed">NORMAL</span>
+                {% else %}Not analyzed{% endif %}
+              </div>
+            </div>
+
+            {% if bill.decision_reason %}
+              <div class="detail-item">
+                <div class="detail-label">Decision Reason</div>
+                <div class="detail-value">{{ bill.decision_reason }}</div>
+              </div>
+            {% endif %}
+
+            {% if bill.bill_number %}
+              <div class="detail-item"><div class="detail-label">Bill Number</div><div class="detail-value">{{ bill.bill_number }}</div></div>
+            {% endif %}
+            {% if bill.units is not none %}
+              <div class="detail-item"><div class="detail-label">Units</div><div class="detail-value">{{ "{:,.2f}".format(bill.units) }}</div></div>
+            {% endif %}
+            {% if bill.unit_rate is not none %}
+              <div class="detail-item"><div class="detail-label">Unit Rate</div><div class="detail-value">${{ "{:,.4f}".format(bill.unit_rate) }}</div></div>
+            {% endif %}
+            {% if bill.amount is not none %}
+              <div class="detail-item"><div class="detail-label">Amount</div><div class="detail-value">${{ "{:,.2f}".format(bill.amount) }}</div></div>
+            {% endif %}
+            {% if bill.bill_date %}
+              <div class="detail-item"><div class="detail-label">Bill Date</div><div class="detail-value">{{ bill.bill_date }}</div></div>
+            {% endif %}
+          </div>
+
+          {% if alerts %}
+            <div style="margin-top: 1.5rem;">
+              <h3 style="font-size: 1rem; font-weight: 700; color: var(--text-main); margin-bottom: 0.75rem;">Related Alerts</h3>
+              <div class="detail-grid">
+                {% for alert in alerts %}
+                  <article class="detail-item">
+                    <div class="detail-label">Severity</div>
+                    <div class="detail-value">{{ alert.severity|capitalize }}</div>
+                    <div class="detail-label" style="margin-top: 0.85rem;">Reason</div>
+                    <div class="detail-value">{{ alert.reason }}</div>
+                    {% if alert.recommended_action %}
+                      <div class="detail-label" style="margin-top: 0.85rem;">Recommended Action</div>
+                      <div class="detail-value">{{ alert.recommended_action }}</div>
+                    {% endif %}
+                    <div class="detail-label" style="margin-top: 0.85rem;">Review State</div>
+                    <div class="detail-value">{{ 'Reviewed' if alert.is_reviewed else 'Needs review' }}</div>
+                  </article>
+                {% endfor %}
+              </div>
+            </div>
+          {% endif %}
+        </section>
 
         <!-- Attachment Section -->
         <div style="margin-top: 2rem; border-top: 1px solid var(--border-subtle); padding-top: 1.5rem;">
@@ -240,7 +305,7 @@
           {% endif %}
         </div>
 
-        <!-- AI Engine Notice -->
+        <!-- Automation Data Notice -->
         <div class="info-banner" style="margin-top: 2rem;">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="10"></circle>
@@ -248,7 +313,7 @@
             <line x1="12" y1="8" x2="12.01" y2="8"></line>
           </svg>
           <div>
-            <strong>Phase 3 Status:</strong> AI analysis will be available in a later phase. Data shown above reflects records stored in the SQLite data layer.
+            <strong>Automation data:</strong> Decisions, reasons, alerts, and processed values shown here come from this bill's stored database record.
           </div>
         </div>
       </div>
